@@ -62,3 +62,108 @@ bochs -f ./bochsrc
 Next at t=0
 (0) [0x0000fffffff0] f000:fff0 (unk. ctxt): jmpf 0xf000:e05b          ; ea5be000f0
 ```
+
+## Format the Floppy to FAT12 file system format
+
+The aim of boot program is to find and load loader program to the RAM and start running loader program.
+
+The loader program can change overtime, which means its size can change. If  we format the Floppy with a file system then we can always load a loader file without changing the boot sector code.
+
+For FAT file system, it is easy to format with assembly code and easy to find terminal tool to copy loader.bin file into it, but to validate our program written in assembly code, we will need to dive further into the FAT file system.
+
+
+
+### FAT12 Format Brief
+
+Write c/cpp code to traverse the file system on floppy and list the file name and file size and other informations.
+
+```bash
+The Volume of the 1.44MB Floppy Disk
+1.44MB = 1.44 * 1000 KB = 1440KB = 1440 * 1024 = 1474567B
+```
+
+**Note:**
+
+Originally the manufacturer of the Floppy disk calculate the volume in KB by using the `tracks, sectors, sides`. Then when they get the KB they simply divided it with 1000 to get MB for a number that is easier to memorize.
+
+```bash
+Each sector occupies 512 Bytes, thus a 1.44MB Floppy has the following secotrs
+1474567 Bytes / 512 Bytes = 2880 sectors
+
+Since the sector number starts from 0, then it is 0 ~ 2079
+```
+
+When we get the 0 ~ 2079 sectors, we can divide them according to the definition of the FAT 12 file system
+
+```bash
+0 :Boot Sector
+1 - 9: FAT Table (FAT1)
+10 - 18: FAT Table (FAT2)
+19 - 32: Root Directory
+33 - 2879: Data Area
+```
+
+The definition above comes from the disk information we defined in the Boot Sector, for a 1.44MB Floppy disk, the above definition is the most appropriate one.
+
+**The Boot Sector**
+
+| name                     | offset | length | description                                          | actual value              |
+| ------------------------ | ------ | ------ | ---------------------------------------------------- | ------------------------- |
+| BS_jmpBoot               | 0      | 3      | jmp instruction                                      | jmp short Label_Start nop |
+| BS_OEMName               | 3      | 8      | Vendor Name                                          | TestBoot                  |
+| BPB_BytesPerSec          | 11     | 2      | bytes per sector                                     | 512                       |
+| BPB_SecPerClus           | 13     | 1      | sectors per cluster                                  | 1                         |
+| BPB_RsvdSecCnt           | 14     | 2      | number of reserved sectors                           | 1                         |
+| BPB_NumFATs              | 16     | 1      | Number of FATs                                       | 2                         |
+| BPB_RootEntCnt           | 17     | 2      | Maximum number of root directory entries             | 224                       |
+| BPB_TotSec16             | 19     | 2      | total sector count                                   | 2880                      |
+| BPB_Media                | 21     | 1      | Descriptor of the disk                               | 0xF0                      |
+| BPB_FATSz16              | 22     | 2      | sectors per FAT                                      | 9                         |
+| BPB_SecPerTrk            | 24     | 2      | sectors per track                                    | 18                        |
+| BPB_NumHeads             | 26     | 2      | number of heads                                      | 2                         |
+| BPB_HiddSec              | 28     | 4      | number of hidden sectors                             | 0                         |
+| BPB_TotSec32             | 32     | 4      | total sector count for FAT32 (0 for FAT12 and FAT16) | 0                         |
+| BS_DrvNum                | 36     | 1      | drive number of int 13h                              | 0                         |
+| BS_Reserved1             | 37     | 1      | Unused                                               | 0                         |
+| BS_BootSig               | 38     | 1      | boot signature (29h)                                 | 0x29                      |
+| BS_VolID                 | 39     | 4      | volume id                                            | 0                         |
+| BS_VolLab                | 43     | 11     | volume label                                         | 'boot loader'             |
+| BS_FileSysType           | 54     | 8      | File system type                                     | 'FAT12   '                |
+| other code               | 62     | 448    | boot code, data and other information                |                           |
+| boot sector notification | 510    | 2      | 0xAA55                                               | 0xAA55                    |
+
+### Code to Traverse the file of the Floppy
+
+1. First write code to read and print all the information of the boot sector 0 - 62
+
+```
+(base) ➜  BootLoader git:(boot) ✗ ./a.out
+BS_OEMName: TestBoot
+BPB_BytesPerSec: 512
+BPB_SecPerClus: 1
+BPB_RsvdSecCnt : 1
+BPB_NumFATs : 2
+BPB_RootEntCnt : 224
+BPB_TotSec16 : 2880
+BPB_Media : 0x00f0
+BPB_FATSz16 : 9
+BPB_SecPerTrk: 18
+BPB_NumHeads : 2
+BPB_HiddSec: 0
+BPB_TotSec32: 0
+BS_DrvNum: 0
+BPB_BootSig : 0x0029
+BS_VolID: 0
+BS_VolLab : boot loader
+BS_FileSysType : FAT12   
+
+Bytes read so far: 62
+```
+
+2. Then write code to Traverse the Directory to list all the file in the floppy
+
+
+
+# References
+
+https://www.partitionwizard.com/partitionmanager/floppy-disk-size.html
