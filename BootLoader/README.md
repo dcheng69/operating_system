@@ -164,6 +164,56 @@ Bytes read so far: 62
 
 
 
+## Assembly Code to Locate and Load Loader.bin file
+
+Since we already have a FAT12 file system, we will need to write Assembly code to locate the loader program we want the boot program to locate and load.
+
+### Code to Load a Sector to Memmory
+
+By using interrupt `13h ah=02h` we will be able to read a designated number of sectors into the address we want it to be loaded.
+
+However, This BIOS interrupt accept CHS (Cylinder/Head/Sector) format of address, in order to make our use easier, we need to write a function that accept LBA(Logical Block Address).
+
+To do that, we need first figure out the conversion between these two format of addresses
+
+**LBA and CHS**
+
+```bash
+LBA = (C-CS)*HPC*SPT + (H-HS)*SPT + (S-SS)
+
+where:
+C, H, S represent Cylinder, Head, Sector
+CS, HS, SS represent the start number of Cylinder, Head and Sector, for floppy, CS=0, HS=0, SS=1
+HPS represents heads per cylinder (you can also imagine cylinder as a ring for floppy because it only has one plate and has two sides), for floppy HPC=2
+SPT represents sectors per track, for 1.44MB floppy, SPT=18
+```
+
+**How to Get C H S from LBA Address**
+
+```
+Because CS = 0, HS = 0, SS = 1
+then:
+LBA = C*HPC*SPT + H*SPT + (S-1)
+LBA = (C*HPC+H)*SPT + (S-1)
+
+HPC = 2 and SPT= 18 for 1.44MB floppy
+then:
+LBA = (2*C + H)*18 + (S - 1)
+
+Because previous sector must be filled before move to the next sector
+then:
+S = LBA%SPT + 1 (Sector number start from 1)
+
+Because previous head must be filled before move to the next head
+then:
+H = (LBA/SPT) % HPC
+
+Because previous cylinder must be filled before move to the next Cylinder
+C = LBA/ (SPT * HPC)
+```
+
+
+
 # References
 
 https://www.partitionwizard.com/partitionmanager/floppy-disk-size.html
