@@ -212,8 +212,121 @@ Because previous cylinder must be filled before move to the next Cylinder
 C = LBA/ (SPT * HPC)
 ```
 
+### Code to Traverse Root Dir
 
+In order to find file with specific name, we need to write assembly code to traverse the Root Dir. Good thing is that we already know the start sector of the Root Dir, which is `19`
+
+Then we have to load all the sectors (19 - 32) to an address that will not override the boot sector load to `0x7c00`, because the boot sector occupies `512 = 0x200` bytes, `0x7c00 + 0x200 = 0x7e00` thus, the `0x7e00` will be a good position to store the sector of root directory.
+
+Since we are already there, we better draw a preliminary sketch of the lower memory layout after boot
+
+![fat12_disk_distribution](../Documentation/res/fat12_disk_distribute.png)
+
+![lower memory layout](../Documentation/res/lower_memory_layout_after_boot.png)
+
+**Logic of Traverse the Root Dir:**
+
+1. Using `dd if=boot.bin of=boot.img bs=512 count=1 seek=19 conv=notrunc` to copy the boot sector to the 20 sector (sector 19 when start from 0). And examine the value and the size of the `boot.img`
+
+```
+-rwxrwxrwx 1 root root 10K Dec 28 17:19 boot.img
+```
+
+2. Then use the below assembly code to load the sector 19 to `0x7e00`, as we can see
+
+```
+;==== search loader.bin file
+;==== loop from sector 19 to 32, load every sector to the RAM
+Func_FindLoaderBin:
+    mov bx, 0x00 ; offset
+    mov ax, 0x7e0 ; base address, 
+    mov es, ax ; 0x7e0 << 16 + 0x00 = 0x7e00 is the destination address
+
+    mov ax, SectorNumOfRootDirStart
+    mov cl, 1 ; read one sector at a time
+
+    call Func_ReadOneSector
+    ret
+```
+
+3. execute the code and examine the value in RAM using bochs command,  we can check the last two bytes of the results, see if they are `0x55 0xaa`.
+
+```
+<bochs:3> help x
+x  /nuf <addr> - examine memory at linear address
+xp /nuf <addr> - examine memory at physical address
+    nuf is a sequence of numbers (how much values to display)
+    and one or more of the [mxduotcsibhwg] format specificators:
+    x,d,u,o,t,c,s,i select the format of the output (they stand for
+        hex, decimal, unsigned, octal, binary, char, asciiz, instr)
+    b,h,w,g select the size of a data element (for byte, half-word,
+        word and giant word)
+    m selects an alternative output format (memory dump)
+<bochs:4> x /512xb 0x7e00
+...........
+```
+
+4. Write code to traverse all the sector in root directory sectors.
+
+```
+;==== search loader.bin file
+;==== loop from sector 19 to 32, load every sector to the RAM
+Func_FindLoaderBin:
+    mov bx, 0x00 ; offset
+    mov ax, 0x7e0 ; base address, 
+    mov es, ax ; 0x7e0 << 16 + 0x00 = 0x7e00 is the destination address
+
+    mov dx, RootDirSectors ; variable for loop control
+
+LoadNextSector:
+    mov ax, SectorNumOfRootDirStart
+    mov cl, 1 ; read one sector at a time
+
+    ; save registers status before sub function
+    push cx
+    push ax
+    push dx
+    push bx
+    call Func_ReadOneSector
+    ; restore registers status after sub function
+    pop bx
+    mov ax, 0x7e0 ; base address, 
+    mov es, ax ; 0x7e0 << 16 + 0x00 = 0x7e00 is the destination address
+    pop dx
+    pop ax
+    pop cx
+    
+    dec dx
+    jnz LoadNextSector
+
+    ret
+```
+
+5. Modify the code to Traverse all directory entry (32 bytes each) for every sector loaded.
+
+```
+; this function traverse the sector loaded to the 0x7e00
+Func_ReadDirEntries:
+    mov ax, 0x7e00 - 32
+    mov dx, DirNuminOneSctor
+LoadNextDir:
+    add ax, 32 ; jump 32 bytes a time
+    ; read and display the name of this sector
+
+    dec dx
+    jnz LoadNextDir
+
+    ret
+```
+
+6. Modify the code to compare every directory name with `LOADER.BIN`, which to compare the first [0 .. 4] bytes one by one and then compare the [8 .. 10]
 
 # References
 
 https://www.partitionwizard.com/partitionmanager/floppy-disk-size.html
+
+https://en.wikipedia.org/wiki/Memory_segmentation
+
+https://en.wikipedia.org/wiki/INT_13H
+
+https://iitd-plos.github.io/os/2020/previous_years/2014/bochs/internal-debugger.html#:~:text=set%20reg%20%3D%20expr%20Change%20a%20CPU%20register,CPU%20registers%20and%20their%20contents%20regs%20reg%20r

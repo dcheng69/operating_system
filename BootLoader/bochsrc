@@ -1,2 +1,4 @@
   floppya: 1_44="./boot.img", status=inserted
   boot: floppy
+  # Enable logging to file
+  log: bochs.log
