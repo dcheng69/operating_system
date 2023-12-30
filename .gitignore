@@ -2,3 +2,4 @@
 *.bin
 .ccls-cache
 *.out
+*.log
