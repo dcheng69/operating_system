@@ -51,28 +51,9 @@ Label_Start:
     mov dx, 0184fh
     int 10h
 
-;==== set focus
-    mov ax, 0200h
-    mov bx, 0000h
-    mov dx, 0000h
-    int 10h
-
-;==== display on screen message
-    mov ax, 1301h
-    mov bx, 000fh
-    mov dx, 0000h
-    mov cx, 24
-    push ax
-    mov ax, ds
-    mov es, ax
-    pop ax
-    mov bp, StartBootMessage
-    int 10h
-
-;==== reset floppy
-    xor ah, ah
-    xor dl, dl
-    int 13h
+;==== display boot message
+    mov bx, StartBootMessage
+    call print_string
 
 ;==== load the first sector of dir to 0x7e00
     call Func_FindLoaderBin
@@ -223,33 +204,45 @@ print_hex_convert_digit:
     ret
 
 
+;==== string address in the bx register
+; loop the string until hit '0' and then stop and return
 print_string:
-    ; loop the string until hit '0' and then stop and return
-    pusha
+    ; save register status
+    push bx
+    ; first set the focus position
+    mov ah, 0x02
+    mov bh, 0
+    mov dh, [focus_line_num]
+    mov dl, 0
+    int 0x10
+    inc byte [focus_line_num] ; set focus to the next line
+    ; restore register status
+    pop bx
 print_string_start:
     mov al, [bx]
     cmp al, 0
     je print_string_end
+    push ax
+    push bx
     call print_char
+    pop bx
+    pop ax
     inc bx
     jmp print_string_start
 print_string_end:
-    popa
     ret
 
 print_char:
-    pusha
     mov ah, 0x0e
     int 0x10
-    popa
     ret
 
+StartBootMessage db 'boot program start!', 0
+focus_line_num db 0
 loader_name db 'LOADER  BIN' ; fixed length of 11 bytes
 hex_msg db '0x0000', 0 ; msg used to store the hex number
 found_loader_msg db 'Found LOADER.BIN!', 0 ; msg for found loader bin
 not_found_loader_msg db 'Not Found LOADER.BIN!', 0 ; msg for found loader bin
-
-StartBootMessage: db "Test boot program start!"
 
 ; ==== fill zero until whole sector
     times 510 - ($ - $$) db 0
