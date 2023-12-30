@@ -55,8 +55,36 @@ Label_Start:
     mov bx, StartBootMessage
     call print_string
 
-;==== load the first sector of dir to 0x7e00
-    call Func_FindLoaderBin
+;==== search for LOADER.BIN file
+;==== loop from sector 19 to 32, load every sector to 0x7e00
+    mov bx, 0x00 ; 0x7e00 offset
+    mov ax, 0x7e0 ; 0x7e00 base address, 
+    mov es, ax ; 0x7e0 << 16 + 0x00 = 0x7e00
+
+    mov dx, RootDirSectors ; variable for loop control
+    mov ax, SectorNumOfRootDirStart - 1
+    mov cl, 1 ; read one sector at a time
+
+LoadNextSector:
+    inc ax
+
+    ; save registers status before sub function
+    push cx
+    push ax
+    push dx
+    push bx
+    call Func_ReadOneSector
+    call Func_ReadDirEntries
+    ; restore registers status after sub function
+    pop bx
+    mov ax, 0x7e0 ; base address, 
+    mov es, ax ; 0x7e0 << 16 + 0x00 = 0x7e00 is the destination address
+    pop dx
+    pop ax
+    pop cx
+
+    dec dx
+    jnz LoadNextSector
 
     jmp $
 
@@ -91,40 +119,6 @@ Label_Go_On_Reading:
     pop bp
     ret
 
-;==== search loader.bin file
-;==== loop from sector 19 to 32, load every sector to the RAM
-Func_FindLoaderBin:
-    mov bx, 0x00 ; offset
-    mov ax, 0x7e0 ; base address, 
-    mov es, ax ; 0x7e0 << 16 + 0x00 = 0x7e00 is the destination address
-
-    mov dx, RootDirSectors ; variable for loop control
-    mov ax, SectorNumOfRootDirStart - 1
-    mov cl, 1 ; read one sector at a time
-
-LoadNextSector:
-    inc ax
-
-    ; save registers status before sub function
-    push cx
-    push ax
-    push dx
-    push bx
-    call Func_ReadOneSector
-    call Func_ReadDirEntries
-    ; restore registers status after sub function
-    pop bx
-    mov ax, 0x7e0 ; base address, 
-    mov es, ax ; 0x7e0 << 16 + 0x00 = 0x7e00 is the destination address
-    pop dx
-    pop ax
-    pop cx
-
-    dec dx
-    jnz LoadNextSector
-
-    ret
-
 ; this function traverse the sector loaded to the 0x7e00
 Func_ReadDirEntries:
     mov ax, 0x7e00 - 32
@@ -150,8 +144,6 @@ FoundLoaderBin:
     mov bx, found_loader_msg
     call print_string
     ret
-
-
 
 ; use the address of bx register
 Func_CmpLoaderName:
@@ -238,11 +230,11 @@ print_char:
     ret
 
 StartBootMessage db 'boot program start!', 0
-focus_line_num db 0
 loader_name db 'LOADER  BIN' ; fixed length of 11 bytes
-hex_msg db '0x0000', 0 ; msg used to store the hex number
 found_loader_msg db 'Found LOADER.BIN!', 0 ; msg for found loader bin
 not_found_loader_msg db 'Not Found LOADER.BIN!', 0 ; msg for found loader bin
+hex_msg db '0x0000', 0 ; msg used to store the hex number
+focus_line_num db 0
 
 ; ==== fill zero until whole sector
     times 510 - ($ - $$) db 0
