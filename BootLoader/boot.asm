@@ -75,6 +75,7 @@ LoadNextSector:
     push bx
     call Func_ReadOneSector
     call Func_ReadDirEntries
+    jc CurrSectorFoundLoaderBin
     ; restore registers status after sub function
     pop bx
     mov ax, 0x7e0 ; base address, 
@@ -86,6 +87,8 @@ LoadNextSector:
     dec dx
     jnz LoadNextSector
 
+CurrSectorFoundLoaderBin:
+    add sp, 8 ; restore the stack pointer
     jmp $
 
 ;==== read one sector from floppy
@@ -137,12 +140,30 @@ LoadNextDir:
     jnz LoadNextDir
 
     mov bx, not_found_loader_msg
-    call print_string
+    call print_string ; no loader.bin found
+    ; not found loader.bin!
+    clc ; clear carry flag to indicate failure
     ret
 
 FoundLoaderBin:
+    pop dx
+    pop ax
     mov bx, found_loader_msg
     call print_string
+
+    add ax, 26
+    mov si, ax ; put address to si register
+    mov ax, [si] ; First Logical Cluster
+
+    add si, 2
+    mov bx, [si]
+    add si, 2
+    mov cx, [si]
+
+    call Func_LoadLoader
+
+    ; found loader.bin!
+    stc ; set carry flag to indicate success
     ret
 
 ; use the address of bx register
@@ -168,6 +189,32 @@ NotFound:
     clc ; clear carry flag to indicate failure
     ret
 
+; function to load loader.bin to the RAM
+; paramaters:
+;   ax: First Logical Cluster
+;   bx: File Size high 2 bytes
+;   cx: File Size lower 2 bytes
+Func_LoadLoader:
+    push cx
+    push bx
+
+    push ax
+    mov bx, loader_FLC
+    call print_string
+    pop ax
+
+    call print_hex
+
+    mov bx, loader_FS
+    call print_string
+    pop bx
+    mov ax, bx
+    call print_hex
+    pop cx
+    mov ax, cx
+    call print_hex
+
+    ret
 
 ; subfunction: print value in hex format
 ; input: AX register
@@ -193,6 +240,8 @@ print_hex_convert_digit:
     shr dx, 4
 
     loop convert_loop
+    mov bx, hex_msg
+    call print_string
     ret
 
 
@@ -235,6 +284,9 @@ found_loader_msg db 'Found LOADER.BIN!', 0 ; msg for found loader bin
 not_found_loader_msg db 'Not Found LOADER.BIN!', 0 ; msg for found loader bin
 hex_msg db '0x0000', 0 ; msg used to store the hex number
 focus_line_num db 0
+
+loader_FLC db 'First Logical Cluster:', 0
+loader_FS db 'File Size(in bytes):', 0
 
 ; ==== fill zero until whole sector
     times 510 - ($ - $$) db 0
