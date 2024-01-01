@@ -8,6 +8,8 @@ OffsetOfLoader          equ 0x00
 BaseOfTmpRootDir        equ 0x07e0
 OffsetOfTmpRootDir      equ 0x00
 AddressOfTmpRootDir     equ 0x7e00
+BaseOfFAT1              equ 0x0800
+OffsetOfFAT1            equ 0x00
 
 RootDirSectors          equ 14
 SectorNumOfRootDirStart equ 19
@@ -230,61 +232,60 @@ Label_NotLoaderName:
     clc ; clear carry flag to indicate failure
     ret
 
-; function to load loader.bin to the RAM
-; paramaters:
-;   ax: First Logical Cluster
-;   bx: File Size lower 2 bytes
-;   cx: File Size higher 2 bytes
+; ------------------------------------------------
+; Function Name: Func_LoadLoader
+; Description: load loader program to RAM
+; Input Parameters:
+;   - Param 1:AX - First Logical Cluster
+;   - Param 2:BX - File Size lower 2 bytes
+;   - Param 2:CX - File Size higher 2 bytes
+; Output:
+;   - No Return Value
+; Notes:
+; This program will load the entire Loader program to 0x1000
+; ------------------------------------------------
 Func_LoadLoader:
     ; save the register value
     push ax
-    ; load the whole FAT1 table to 0x8000
-    ; load sector 1 to 9 to 0x8000
-    mov bx, 0x0800
-;    push bx ; save this address for later increment
-;    mov es, bx ; 0x800 << 16 + 0x00 = 0x8000
-;    mov bx, 0x00
-;
+
+    ; load the whole FAT1 table
+    mov bx, BaseOfFAT1
     mov dx, 9 ; variable to control loop
     mov ax, 1 ; start number of FAT1 table sector
-;    mov cl, 1
 
-LoadNextFAT1Sector:
+Label_LoadNextFAT1Sector:
     push bx ; save this address for later increment
-    mov es, bx ; 0x800 << 16 + 0x00 = 0x8000
-    mov bx, 0x00
+    mov es, bx ; BaseOfFAT1 << 16 + OffsetOfFAT1
+    mov bx, OffsetOfFAT1
 
-;    mov dx, 9 ; variable to control loop
-;    mov ax, 1 ; start number of FAT1 table sector
-    mov cl, 1
+    mov cl, 1 ; read one secor at a time
     push ax
     push dx
     call Func_ReadOneSector
     pop dx
     pop ax
     inc ax
-
     pop bx
     add bx, 0x0020 ; move base address forward 512 bytes
 
+    ; control variables
     dec dx
-    jnz LoadNextFAT1Sector
+    jnz Label_LoadNextFAT1Sector
 
     ; restore the register value
     pop ax
-NextFATEntry:
-    ; load sector indicated by ax
+Label_NextFATEntry:
     ; judge if hit the end, 0xFF8 ~ 0xFFF
     cmp ax, 0xff8
-    jl file_not_end
+    jl Label_FileNotEnd
 
     cmp ax, 0xfff
-    jg file_not_end
+    jg Label_FileNotEnd
 
-    ; file end
+    ; file reach end
     ret
 
-file_not_end:
+Label_FileNotEnd:
     ; physical sector no = (FAT - 2) * BPB_SEcPerClus + First physector no
     push ax ; save FAT value
     add ax, 31
@@ -292,15 +293,15 @@ file_not_end:
     pop ax ; restore to FAT value
     ; FAT entry are 12 bits each, two occupy two bytes
     test al, 1
-    jz FAT_Even
-    jmp FAT_Odd
+    jz Label_FAT_Even
+    jmp Label_FAT_Odd
 
-FAT_Even:
+Label_FAT_Even:
     ; (n/2)*3
     ; divided by 2
     shr ax, 1
     mov bx, ax
-    ; multiplied by 3
+    ; x3 = multiplied by 2 and add it self
     shl ax, 1
     add ax, bx
     ; add bytes to the base address
@@ -313,14 +314,14 @@ FAT_Even:
     mov ax, [si] ; read two bytes
     and ax, 0x0fff
 
-    jmp NextFATEntry
+    jmp Label_NextFATEntry
 
-FAT_Odd:
+Label_FAT_Odd:
     ; (n/2)*3+1
     ; divided by 2
     shr ax, 1
     mov bx, ax
-    ; multiplied by 3
+    ; x3 = multiplied by 2 and add it self
     shl ax, 1
     add ax, bx
     inc ax
@@ -335,11 +336,7 @@ FAT_Odd:
 
     shr ax, 4
 
-    jmp NextFATEntry
-
-Load_SectorbyFAT:
-
-    ret
+    jmp Label_NextFATEntry
 
 ;==== function to load sector to 0x10000
 ; ax indicate the actual sector to load
@@ -352,35 +349,6 @@ Func_LoadSectorByFAT:
     mov cl, 1 ; read one sector at a time
     call Func_ReadOneSector
     ret
-
-; subfunction: print value in hex format
-; input: DX register
-; output: no paramaters returned, direcly render on screen
-;print_hex:
-;    mov cx, 4
-;    lea di, [hex_msg+5] ; set the address to "0x..."
-;
-;convert_loop:
-;        mov ax, dx
-;        and al, 0x0F ; calculate the lower 4 digits
-;
-;        cmp al, 9
-;        jle print_hex_convert_digit
-;        add al, 'A' - '9' - 1 ; calculate the distance
-;
-;print_hex_convert_digit:
-;    add al, '0'
-;    mov [di], al
-;    dec di
-;
-;    ; shift right 4 digits
-;    shr dx, 4
-;
-;    loop convert_loop
-;    mov bx, hex_msg
-;    call print_string
-;    ret
-
 
 ;==== string address in the bx register
 ; loop the string until hit '0' and then stop and return
