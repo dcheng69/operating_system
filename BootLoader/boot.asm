@@ -7,12 +7,14 @@ BaseOfLoader            equ 0x1000
 OffsetOfLoader          equ 0x00
 BaseOfTmpRootDir        equ 0x07e0
 OffsetOfTmpRootDir      equ 0x00
+AddressOfTmpRootDir     equ 0x7e00
 
 RootDirSectors          equ 14
 SectorNumOfRootDirStart equ 19
 SectorNumOfFAT1Start    equ 1
 SectorBalance           equ 17
 DirNuminOneSctor        equ 16
+RootDirEntryBytes       equ 32
 
 ;===== Boot Sector of Fat12 Floppy
 jmp short Label_Start
@@ -75,7 +77,7 @@ Label_LoadNextSector:
     push dx
     push bx
     call Func_ReadOneSector
-    call Func_ReadDirEntries
+    call Func_TraverseDirEntries
     jc CurrSectorFoundLoaderBin
     ; restore registers status after sub function
     pop bx
@@ -90,9 +92,18 @@ Label_LoadNextSector:
     dec dx
     jnz Label_LoadNextSector
 
+    ; no loader in floppy
+    mov bx, NoLoaderMessage
+    call print_string
+
+    ; boot program stuck here
+    jmp $
+
 ;==== jump to LOADER.BIN and execute
 CurrSectorFoundLoaderBin:
     add sp, 8 ; restore the stack pointer
+    ; registers are prepared by Func_TraverseDirEntries
+    call Func_LoadLoader
     jmp BaseOfLoader:OffsetOfLoader
 
 ;=============================Main Boot Done!============================================
@@ -135,33 +146,40 @@ Label_GoOnReading:
     pop bp
     ret
 
-; this function traverse the sector loaded to the 0x7e00
-Func_ReadDirEntries:
-    mov ax, 0x7e00 - 32
+; ------------------------------------------------
+; Function Name: Func_TraverseDirEntries
+; Description: Traverse the Dir sector loaded to RAM looking for LOADER.BIN
+; Input Parameters:
+;   - No Param
+; Output:
+;   - Return Value 1: Carry Flags Indicate Whether Found LOADER.BIN
+;   - Return Value 2: AX - LOADER.BIN First Logical Cluster
+;   - Return Value 3: BX - LOADER.BIN size lower size (2 bytes)
+;   - Return Value 4: CX - LOADER.BIN size higher size (2 bytes)
+; Notes:
+; When success this program will use register to pass return value, do not override!
+; ------------------------------------------------
+Func_TraverseDirEntries:
+    mov ax, AddressOfTmpRootDir
     mov dx, DirNuminOneSctor
-LoadNextDir:
-    add ax, 32 ; jump 32 bytes a time
+Label_LoadNextDir:
     push ax
     push dx
     mov bx, ax
     call Func_CmpLoaderName
-    jc FoundLoaderBin
+    jc Label_FoundLoaderBinInDir
     pop dx
     pop ax
 
+    add ax, RootDirEntryBytes ; jump 32 bytes at a time
     dec dx
-    jnz LoadNextDir
+    jnz Label_LoadNextDir
 
-    mov bx, not_found_loader_msg
-    call print_string ; no loader.bin found
     ; not found loader.bin!
     clc ; clear carry flag to indicate failure
     ret
 
-FoundLoaderBin:
-;    mov bx, found_loader_msg
-;    call print_string
-
+Label_FoundLoaderBinInDir:
     pop dx
     pop ax
     add ax, 26
@@ -171,11 +189,9 @@ FoundLoaderBin:
     mov ax, [si] ; First Logical Cluster
 
     add si, 2
-    mov bx, [si]
+    mov bx, [si] ; file size lower 2 bytes
     add si, 2
-    mov cx, [si]
-
-    call Func_LoadLoader
+    mov cx, [si] ; file size higher 2 bytes
 
     ; found loader.bin!
     stc ; set carry flag to indicate success
@@ -391,8 +407,7 @@ print_char:
 
 StartBootMessage db 'boot start!', 0
 loader_name db 'LOADER  BIN' ; fixed length of 11 bytes
-;found_loader_msg db 'Found LOADER.BIN!', 0 ; msg for found loader bin
-not_found_loader_msg db 'No LOADER.BIN!', 0 ; msg for found loader bin
+NoLoaderMessage db 'No LOADER.BIN!', 0 ; msg for found loader bin
 ;hex_msg db '0x0000', 0 ; msg used to store the hex number
 focus_line_num db 0
 loader_start_base dw BaseOfLoader
