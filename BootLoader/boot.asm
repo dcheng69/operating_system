@@ -5,6 +5,8 @@ org 0x7c00
 BaseOfStack             equ 0x7c00
 BaseOfLoader            equ 0x1000
 OffsetOfLoader          equ 0x00
+BaseOfTmpRootDir        equ 0x07e0
+OffsetOfTmpRootDir      equ 0x00
 
 RootDirSectors          equ 14
 SectorNumOfRootDirStart equ 19
@@ -14,7 +16,7 @@ DirNuminOneSctor        equ 16
 
 ;===== Boot Sector of Fat12 Floppy
 jmp short Label_Start
-nop
+nop ; fill the first 3 bytes, no operation
 BS_OEMName          db      'TestBoot'
 BPB_BytesPerSec     dw      512
 BPB_SecPerClus      db      1
@@ -34,8 +36,9 @@ BS_BootSig          db      29h
 BS_VolID            dd      0
 BS_VolLab           db      'boot loader'
 BS_FileSysType      db      'FAT12   '
-;==== Boot Sector Occupy 62 bytes, the rest will be other code
+;==== Boot Sector Occupy 62 bytes, the rest will be boot code
 
+;=============================Main Boot start!============================================
 ;===== Program start point
 Label_Start:
     mov ax, cs
@@ -55,19 +58,17 @@ Label_Start:
     mov bx, StartBootMessage
     call print_string
 
-;==== search for LOADER.BIN file
-;==== loop from sector 19 to 32, load every sector to 0x7e00
-    mov bx, 0x00 ; 0x7e00 offset
-    mov ax, 0x7e0 ; 0x7e00 base address, 
-    mov es, ax ; 0x7e0 << 16 + 0x00 = 0x7e00
+;==== search and load LOADER.BIN file
+;==== loop from sector 19 to 32, load every sector to BaseOfTmpRootDir
+    mov bx, OffsetOfTmpRootDir
+    mov ax, BaseOfTmpRootDir
+    mov es, ax ; BaseOfTmpRootDir << 16 + OffsetOfTmpRootDir
 
     mov dx, RootDirSectors ; variable for loop control
-    mov ax, SectorNumOfRootDirStart - 1
+    mov ax, SectorNumOfRootDirStart ; start sector num
     mov cl, 1 ; read one sector at a time
 
-LoadNextSector:
-    inc ax
-
+Label_LoadNextSector:
     ; save registers status before sub function
     push cx
     push ax
@@ -78,18 +79,23 @@ LoadNextSector:
     jc CurrSectorFoundLoaderBin
     ; restore registers status after sub function
     pop bx
-    mov ax, 0x7e0 ; base address, 
-    mov es, ax ; 0x7e0 << 16 + 0x00 = 0x7e00 is the destination address
+    mov ax, BaseOfTmpRootDir
+    mov es, ax ; BaseOfTmpRootDir << 16 + OffsetOfTmpRootDir
     pop dx
     pop ax
     pop cx
 
+    ; operate the control variables
+    inc ax
     dec dx
-    jnz LoadNextSector
+    jnz Label_LoadNextSector
 
+;==== jump to LOADER.BIN and execute
 CurrSectorFoundLoaderBin:
     add sp, 8 ; restore the stack pointer
     jmp BaseOfLoader:OffsetOfLoader
+
+;=============================Main Boot Done!============================================
 
 ;==== read one sector from floppy
 ; FUnction Paramaters
