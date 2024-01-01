@@ -97,12 +97,18 @@ CurrSectorFoundLoaderBin:
 
 ;=============================Main Boot Done!============================================
 
-;==== read one sector from floppy
-; FUnction Paramaters
-; AX : start sector number to be read
-; CL : number of sectors to be read
-; ES:BX : target address in RAM
+; ------------------------------------------------
+; Function Name: Func_ReadOneSector
+; Description: Read one sector data to RAM
+; Input Parameters:
+;   - Param 1:AX - start sector number to be read
+;   - Param 2:CL - number of sectors to be read
+;   - Param 3:ES:BX - target address in RAM, (ADDRESS = ES << 16 + BX)
+; Output:
+;   - No return value, ret means read success, or keep trying
+; Notes:
 ; This program will transform LBA format to CHS format for int 13h usage
+; ------------------------------------------------
 Func_ReadOneSector:
     push bp
     mov bp, sp
@@ -119,11 +125,12 @@ Func_ReadOneSector:
     and dh, 1 ; head number (% operation to get the residual after divided by 2)
     pop bx
     mov dl, [BS_DrvNum]
-Label_Go_On_Reading:
+
+Label_GoOnReading:
     mov ah, 2
     mov al, byte [bp - 2]
     int 13h
-    jc Label_Go_On_Reading
+    jc Label_GoOnReading
     add sp, 2
     pop bp
     ret
