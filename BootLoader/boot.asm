@@ -15,6 +15,7 @@ SectorNumOfFAT1Start    equ 1
 SectorBalance           equ 17
 DirNuminOneSctor        equ 16
 RootDirEntryBytes       equ 32
+RootDirNameAttrBytes    equ 11
 
 ;===== Boot Sector of Fat12 Floppy
 jmp short Label_Start
@@ -198,25 +199,34 @@ Label_FoundLoaderBinInDir:
     ret
 
 ; use the address of bx register
+; ------------------------------------------------
+; Function Name: Func_CmpLoaderName
+; Description: compare the name in address bx with "LOADER   .BIN"
+; Input Parameters:
+;   - Input Param 1: BX - Start Address of File Name
+; Output:
+;   - Return Value 1: Carry Flags Indicate Whether name Identical
+; ------------------------------------------------
 Func_CmpLoaderName:
-    mov dx, 11 ; fixed length of file name
-    mov si, loader_name ; se the si to the start point of loader_name
-CmpNextChar:
+    mov dx, RootDirNameAttrBytes
+    mov si, LoaderNameStr
+
+Label_CmpNextChar:
     lodsb ; load 1 byte from si address to al
     cmp al, [bx]
-    jne NotFound
+    jne Label_NotLoaderName
 
     ; move to the next pos
     inc bx
     dec dx
-    jnz CmpNextChar
+    jnz Label_CmpNextChar
 
-    ; found loader.bin!
+    ; Name is loader.bin!
     stc ; set carry flag to indicate success
     ret
 
-NotFound:
-    ; not found loader.bin!
+Label_NotLoaderName:
+    ; Name is not loader.bin!
     clc ; clear carry flag to indicate failure
     ret
 
@@ -406,7 +416,7 @@ print_char:
     ret
 
 StartBootMessage db 'boot start!', 0
-loader_name db 'LOADER  BIN' ; fixed length of 11 bytes
+LoaderNameStr db 'LOADER  BIN' ; fixed length of 11 bytes
 NoLoaderMessage db 'No LOADER.BIN!', 0 ; msg for found loader bin
 ;hex_msg db '0x0000', 0 ; msg used to store the hex number
 focus_line_num db 0
