@@ -89,7 +89,7 @@ LoadNextSector:
 
 CurrSectorFoundLoaderBin:
     add sp, 8 ; restore the stack pointer
-    jmp $
+    jmp BaseOfLoader:OffsetOfLoader
 
 ;==== read one sector from floppy
 ; FUnction Paramaters
@@ -146,12 +146,14 @@ LoadNextDir:
     ret
 
 FoundLoaderBin:
+;    mov bx, found_loader_msg
+;    call print_string
+
     pop dx
     pop ax
-    mov bx, found_loader_msg
-    call print_string
-
     add ax, 26
+    mov dx, 0x0000 ; base address
+    mov ds, dx
     mov si, ax ; put address to si register
     mov ax, [si] ; First Logical Cluster
 
@@ -192,57 +194,153 @@ NotFound:
 ; function to load loader.bin to the RAM
 ; paramaters:
 ;   ax: First Logical Cluster
-;   bx: File Size high 2 bytes
-;   cx: File Size lower 2 bytes
+;   bx: File Size lower 2 bytes
+;   cx: File Size higher 2 bytes
 Func_LoadLoader:
-    push cx
-    push bx
-
+    ; save the register value
     push ax
-    mov bx, loader_FLC
-    call print_string
+    ; load the whole FAT1 table to 0x8000
+    ; load sector 1 to 9 to 0x8000
+    mov bx, 0x0800
+;    push bx ; save this address for later increment
+;    mov es, bx ; 0x800 << 16 + 0x00 = 0x8000
+;    mov bx, 0x00
+;
+    mov dx, 9 ; variable to control loop
+    mov ax, 1 ; start number of FAT1 table sector
+;    mov cl, 1
+
+LoadNextFAT1Sector:
+    push bx ; save this address for later increment
+    mov es, bx ; 0x800 << 16 + 0x00 = 0x8000
+    mov bx, 0x00
+
+;    mov dx, 9 ; variable to control loop
+;    mov ax, 1 ; start number of FAT1 table sector
+    mov cl, 1
+    push ax
+    push dx
+    call Func_ReadOneSector
+    pop dx
     pop ax
+    inc ax
 
-    call print_hex
-
-    mov bx, loader_FS
-    call print_string
     pop bx
-    mov ax, bx
-    call print_hex
-    pop cx
-    mov ax, cx
-    call print_hex
+    add bx, 0x0020 ; move base address forward 512 bytes
 
+    dec dx
+    jnz LoadNextFAT1Sector
+
+    ; restore the register value
+    pop ax
+NextFATEntry:
+    ; load sector indicated by ax
+    ; judge if hit the end, 0xFF8 ~ 0xFFF
+    cmp ax, 0xff8
+    jl file_not_end
+
+    cmp ax, 0xfff
+    jg file_not_end
+
+    ; file end
+    ret
+
+file_not_end:
+    ; physical sector no = (FAT - 2) * BPB_SEcPerClus + First physector no
+    push ax ; save FAT value
+    add ax, 31
+    call Func_LoadSectorByFAT
+    pop ax ; restore to FAT value
+    ; FAT entry are 12 bits each, two occupy two bytes
+    test al, 1
+    jz FAT_Even
+    jmp FAT_Odd
+
+FAT_Even:
+    ; (n/2)*3
+    ; divided by 2
+    shr ax, 1
+    mov bx, ax
+    ; multiplied by 3
+    shl ax, 1
+    add ax, bx
+    ; add bytes to the base address
+    add ax, 0x8000
+    ; calculate 12 bits FAT value
+    ; lower 8 bits
+    mov dx, 0x0000 ; base address
+    mov ds, dx
+    mov si, ax ; put address to si register
+    mov ax, [si] ; read two bytes
+    and ax, 0x0fff
+
+    jmp NextFATEntry
+
+FAT_Odd:
+    ; (n/2)*3+1
+    ; divided by 2
+    shr ax, 1
+    mov bx, ax
+    ; multiplied by 3
+    shl ax, 1
+    add ax, bx
+    inc ax
+    ; add bytes to the base address
+    add ax, 0x8000
+    ; calculate 12 bits FAT value
+    ; lower 8 bits
+    mov dx, 0x0000 ; base address
+    mov ds, dx
+    mov si, ax ; put address to si register
+    mov ax, [si] ; read two bytes
+
+    shr ax, 4
+
+    jmp NextFATEntry
+
+Load_SectorbyFAT:
+
+    ret
+
+;==== function to load sector to 0x10000
+; ax indicate the actual sector to load
+Func_LoadSectorByFAT:
+    mov bx, OffsetOfLoader ; 0x10000 offset
+    mov cx, [loader_start_base] ; 0x10000 base address,
+    mov es, cx ; 0x7e0 << 16 + 0x00 = 0x7e00
+    add cx, 0x20
+    mov [loader_start_base], cx
+    mov cl, 1 ; read one sector at a time
+    call Func_ReadOneSector
     ret
 
 ; subfunction: print value in hex format
-; input: AX register
+; input: DX register
 ; output: no paramaters returned, direcly render on screen
-print_hex:
-    mov cx, 4
-    lea di, [hex_msg+5] ; set the address to "0x..."
-
-convert_loop:
-        mov ax, dx
-        and al, 0x0F ; calculate the lower 4 digits
-
-        cmp al, 9
-        jle print_hex_convert_digit
-        add al, 'A' - '9' - 1 ; calculate the distance
-
-print_hex_convert_digit:
-    add al, '0'
-    mov [di], al
-    dec di
-
-    ; shift right 4 digits
-    shr dx, 4
-
-    loop convert_loop
-    mov bx, hex_msg
-    call print_string
-    ret
+;print_hex:
+;    mov cx, 4
+;    lea di, [hex_msg+5] ; set the address to "0x..."
+;
+;convert_loop:
+;        mov ax, dx
+;        and al, 0x0F ; calculate the lower 4 digits
+;
+;        cmp al, 9
+;        jle print_hex_convert_digit
+;        add al, 'A' - '9' - 1 ; calculate the distance
+;
+;print_hex_convert_digit:
+;    add al, '0'
+;    mov [di], al
+;    dec di
+;
+;    ; shift right 4 digits
+;    shr dx, 4
+;
+;    loop convert_loop
+;    mov bx, hex_msg
+;    call print_string
+;    ret
 
 
 ;==== string address in the bx register
@@ -278,15 +376,16 @@ print_char:
     int 0x10
     ret
 
-StartBootMessage db 'boot program start!', 0
+StartBootMessage db 'boot start!', 0
 loader_name db 'LOADER  BIN' ; fixed length of 11 bytes
-found_loader_msg db 'Found LOADER.BIN!', 0 ; msg for found loader bin
-not_found_loader_msg db 'Not Found LOADER.BIN!', 0 ; msg for found loader bin
-hex_msg db '0x0000', 0 ; msg used to store the hex number
+;found_loader_msg db 'Found LOADER.BIN!', 0 ; msg for found loader bin
+not_found_loader_msg db 'No LOADER.BIN!', 0 ; msg for found loader bin
+;hex_msg db '0x0000', 0 ; msg used to store the hex number
 focus_line_num db 0
+loader_start_base dw BaseOfLoader
 
-loader_FLC db 'First Logical Cluster:', 0
-loader_FS db 'File Size(in bytes):', 0
+;loader_FLC db 'First Logical Cluster:', 0
+;loader_FS db 'File Size(in bytes):', 0
 
 ; ==== fill zero until whole sector
     times 510 - ($ - $$) db 0
