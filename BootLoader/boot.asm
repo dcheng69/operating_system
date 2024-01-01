@@ -338,14 +338,22 @@ Label_FAT_Odd:
 
     jmp Label_NextFATEntry
 
-;==== function to load sector to 0x10000
-; ax indicate the actual sector to load
+; ------------------------------------------------
+; Function Name: Func_LoadSectorByFAT
+; Description: Load the sector indicated by FAT number to RAM
+; Input Parameters:
+;   - Param 1:AX - actual sector to load
+; Output:
+;   - No return value, ret means read success, or keep trying
+; Notes:
+; This program will keep and change the loader base address in ram
+; ------------------------------------------------
 Func_LoadSectorByFAT:
-    mov bx, OffsetOfLoader ; 0x10000 offset
-    mov cx, [loader_start_base] ; 0x10000 base address,
-    mov es, cx ; 0x7e0 << 16 + 0x00 = 0x7e00
-    add cx, 0x20
-    mov [loader_start_base], cx
+    mov bx, OffsetOfLoader
+    mov cx, [LoaderBase]
+    mov es, cx ; LoaderBase << 16 + OffsetOfLoader
+    add cx, 0x20 ; increment on base address, equals to 512 base on actual address
+    mov [LoaderBase], cx
     mov cl, 1 ; read one sector at a time
     call Func_ReadOneSector
     ret
@@ -388,7 +396,7 @@ LoaderNameStr db 'LOADER  BIN' ; fixed length of 11 bytes
 NoLoaderMessage db 'No LOADER.BIN!', 0 ; msg for found loader bin
 ;hex_msg db '0x0000', 0 ; msg used to store the hex number
 focus_line_num db 0
-loader_start_base dw BaseOfLoader
+LoaderBase dw BaseOfLoader
 
 ;loader_FLC db 'First Logical Cluster:', 0
 ;loader_FS db 'File Size(in bytes):', 0
