@@ -1,6 +1,7 @@
 ;===== org means Origin, if not specified, the program will take 0x0000 as start address
 org 0x10000
 
+;=============================Main loader start!============================================
 ;===== Program start point
 Label_Loader_Start:
     mov ax, cs
@@ -19,44 +20,61 @@ Label_Loader_Start:
 
 ;==== display on screen message
     mov bx, StartLoaderMessage
-    call print_string
+    call Func_PrintString
 
     jmp $
+;=============================Main loader end!============================================
 
 
-;==== string address in the bx register
-; loop the string until hit '0' and then stop and return
-print_string:
+; ------------------------------------------------
+; Function Name: Func_PrintString
+; Description: Loop the string until hit '0'
+; Input Parameters:
+;   - Param 1:BX - starting address of string
+; Output:
+;   - No return value
+; Notes:
+; This program will keep a line number and print string on the next line
+; ------------------------------------------------
+Func_PrintString:
     ; save register status
     push bx
-    ; first set the focus position
+    ; set the focus position
     mov ah, 0x02
     mov bh, 0
-    mov dh, [focus_line_num]
+    mov dh, [FocusLineNum]
     mov dl, 0
     int 0x10
-    inc byte [focus_line_num] ; set focus to the next line
+    inc dh
+    mov [FocusLineNum], byte dh
     ; restore register status
     pop bx
-print_string_start:
+Label_PrintNextChar:
     mov al, [bx]
-    cmp al, 0
-    je print_string_end
+    cmp al, 0 ; judge if hit '0'
+    je Label_PrintEnd
     push ax
     push bx
-    call print_char
+    call Func_PrintChar
     pop bx
     pop ax
     inc bx
-    jmp print_string_start
-print_string_end:
+    jmp Label_PrintNextChar
+Label_PrintEnd:
     ret
 
-print_char:
+; ------------------------------------------------
+; Function Name: Func_PrintChar
+; Description: Print one Char on the screen
+; Input Parameters:
+;   - Param 1:AL - address of the char
+; Output:
+;   - No return value
+; ------------------------------------------------
+Func_PrintChar:
     mov ah, 0x0e
     int 0x10
     ret
 
-
-focus_line_num db 0
 StartLoaderMessage db "loader program start!"
+FocusLineNum db 0
