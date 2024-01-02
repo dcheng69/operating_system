@@ -61,7 +61,7 @@ Label_Start:
 
 ;==== display boot message
     mov bx, StartBootMessage
-    call print_string
+    call Func_PrintString
 
 ;==== search and load LOADER.BIN file
 ;==== loop from sector 19 to 32, load every sector to BaseOfTmpRootDir
@@ -97,7 +97,7 @@ Label_LoadNextSector:
 
     ; no loader in floppy
     mov bx, NoLoaderMessage
-    call print_string
+    call Func_PrintString
 
     ; boot program stuck here
     jmp $
@@ -358,32 +358,41 @@ Func_LoadSectorByFAT:
     call Func_ReadOneSector
     ret
 
-;==== string address in the bx register
-; loop the string until hit '0' and then stop and return
-print_string:
+; ------------------------------------------------
+; Function Name: Func_PrintString
+; Description: Loop the string until hit '0'
+; Input Parameters:
+;   - Param 1:BX - starting address of string
+; Output:
+;   - No return value
+; Notes:
+; This program will keep a line number and print string on the next line
+; ------------------------------------------------
+Func_PrintString:
     ; save register status
     push bx
-    ; first set the focus position
+    ; set the focus position
     mov ah, 0x02
     mov bh, 0
-    mov dh, [focus_line_num]
+    mov dh, [FocusLineNum]
     mov dl, 0
     int 0x10
-    inc byte [focus_line_num] ; set focus to the next line
+    inc dh
+    mov [FocusLineNum], byte dh
     ; restore register status
     pop bx
-print_string_start:
+Label_PrintNextChar:
     mov al, [bx]
-    cmp al, 0
-    je print_string_end
+    cmp al, 0 ; judge if hit '0'
+    je Label_PrintEnd
     push ax
     push bx
     call print_char
     pop bx
     pop ax
     inc bx
-    jmp print_string_start
-print_string_end:
+    jmp Label_PrintNextChar
+Label_PrintEnd:
     ret
 
 print_char:
@@ -394,12 +403,8 @@ print_char:
 StartBootMessage db 'boot start!', 0
 LoaderNameStr db 'LOADER  BIN' ; fixed length of 11 bytes
 NoLoaderMessage db 'No LOADER.BIN!', 0 ; msg for found loader bin
-;hex_msg db '0x0000', 0 ; msg used to store the hex number
-focus_line_num db 0
 LoaderBase dw BaseOfLoader
-
-;loader_FLC db 'First Logical Cluster:', 0
-;loader_FS db 'File Size(in bytes):', 0
+FocusLineNum db 0
 
 ; ==== fill zero until whole sector
     times 510 - ($ - $$) db 0
