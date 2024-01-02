@@ -107,6 +107,7 @@ CurrSectorFoundLoaderBin:
     add sp, 8 ; restore the stack pointer
     ; registers are prepared by Func_TraverseDirEntries
     call Func_LoadLoader
+    ; jump to loader and execute (different segment)
     jmp BaseOfLoader:OffsetOfLoader
 
 ;=============================Main Boot Done!============================================
@@ -200,7 +201,6 @@ Label_FoundLoaderBinInDir:
     stc ; set carry flag to indicate success
     ret
 
-; use the address of bx register
 ; ------------------------------------------------
 ; Function Name: Func_CmpLoaderName
 ; Description: compare the name in address bx with "LOADER   .BIN"
