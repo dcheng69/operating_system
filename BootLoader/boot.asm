@@ -387,7 +387,7 @@ Label_PrintNextChar:
     je Label_PrintEnd
     push ax
     push bx
-    call print_char
+    call Func_PrintChar
     pop bx
     pop ax
     inc bx
@@ -395,7 +395,15 @@ Label_PrintNextChar:
 Label_PrintEnd:
     ret
 
-print_char:
+; ------------------------------------------------
+; Function Name: Func_PrintChar
+; Description: Print one Char on the screen
+; Input Parameters:
+;   - Param 1:AL - address of the char
+; Output:
+;   - No return value
+; ------------------------------------------------
+Func_PrintChar:
     mov ah, 0x0e
     int 0x10
     ret
