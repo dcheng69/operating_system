@@ -134,7 +134,7 @@ The definition above comes from the disk information we defined in the Boot Sect
 
 ### Code to Traverse the file of the Floppy
 
-1. First write code to read and print all the information of the boot sector 0 - 62
+1. First write cpp code to read and print all the information of the boot sector 0 - 62
 
 ```
 (base) ➜  BootLoader git:(boot) ✗ ./a.out
@@ -159,10 +159,6 @@ BS_FileSysType : FAT12
 
 Bytes read so far: 62
 ```
-
-2. Then write code to Traverse the Directory to list all the file in the floppy
-
-
 
 ## Assembly Code to Locate and Load Loader.bin file
 
@@ -320,6 +316,156 @@ LoadNextDir:
 ```
 
 6. Modify the code to compare every directory name with `LOADER.BIN`, which to compare the first [0 .. 4] bytes one by one and then compare the [8 .. 10]
+
+### Code to Load loader.bin to RAM
+
+1. Print the `First Logical Cluster` and `File Size` of `LOADER.BIN`
+
+```
+; function to load loader.bin to the RAM
+; paramaters:
+;   ax: First Logical Cluster
+;   bx: File Size high 2 bytes
+;   cx: File Size lower 2 bytes
+Func_LoadLoader:
+    push cx
+    push bx
+
+    push ax
+    mov bx, loader_FLC
+    call print_string
+    pop ax
+
+    mov dx, ax
+    call print_hex
+
+    mov bx, loader_FS
+    call print_string
+    pop bx
+    mov dx, bx
+    call print_hex
+    pop cx
+    mov dx, cx
+    call print_hex
+
+    ret
+```
+
+2. According to the First Logical Cluster to locate its position in FAT table and load sectors one by one to `0x10000`
+
+```
+; ------------------------------------------------
+; Function Name: Func_LoadLoader
+; Description: load loader program to RAM
+; Input Parameters:
+;   - Param 1:AX - First Logical Cluster
+;   - Param 2:BX - File Size lower 2 bytes
+;   - Param 2:CX - File Size higher 2 bytes
+; Output:
+;   - No Return Value
+; Notes:
+; This program will load the entire Loader program to 0x1000
+; ------------------------------------------------
+Func_LoadLoader:
+    ; save the register value
+    push ax
+
+    ; load the whole FAT1 table
+    mov bx, BaseOfFAT1
+    mov dx, 9 ; variable to control loop
+    mov ax, 1 ; start number of FAT1 table sector
+
+Label_LoadNextFAT1Sector:
+    push bx ; save this address for later increment
+    mov es, bx ; BaseOfFAT1 << 16 + OffsetOfFAT1
+    mov bx, OffsetOfFAT1
+
+    mov cl, 1 ; read one secor at a time
+    push ax
+    push dx
+    call Func_ReadOneSector
+    pop dx
+    pop ax
+    inc ax
+    pop bx
+    add bx, 0x0020 ; move base address forward 512 bytes
+
+    ; control variables
+    dec dx
+    jnz Label_LoadNextFAT1Sector
+
+    ; restore the register value
+    pop ax
+Label_NextFATEntry:
+    ; judge if hit the end, 0xFF8 ~ 0xFFF
+    cmp ax, 0xff8
+    jl Label_FileNotEnd
+
+    cmp ax, 0xfff
+    jg Label_FileNotEnd
+
+    ; file reach end
+    ret
+
+Label_FileNotEnd:
+    ; physical sector no = (FAT - 2) * BPB_SEcPerClus + First physector no
+    push ax ; save FAT value
+    add ax, 31
+    call Func_LoadSectorByFAT
+    pop ax ; restore to FAT value
+    ; FAT entry are 12 bits each, two occupy two bytes
+    test al, 1
+    jz Label_FAT_Even
+    jmp Label_FAT_Odd
+```
+
+3. Now load sectors indicated by FAT table one sector after another, in the mean time we need to calculate the FAT number
+
+```
+Label_FAT_Even:
+    ; (n/2)*3
+    ; divided by 2
+    shr ax, 1
+    mov bx, ax
+    ; x3 = multiplied by 2 and add it self
+    shl ax, 1
+    add ax, bx
+    ; add bytes to the base address
+    add ax, 0x8000
+    ; calculate 12 bits FAT value
+    ; lower 8 bits
+    mov dx, 0x0000 ; base address
+    mov ds, dx
+    mov si, ax ; put address to si register
+    mov ax, [si] ; read two bytes
+    and ax, 0x0fff
+
+    jmp Label_NextFATEntry
+
+Label_FAT_Odd:
+    ; (n/2)*3+1
+    ; divided by 2
+    shr ax, 1
+    mov bx, ax
+    ; x3 = multiplied by 2 and add it self
+    shl ax, 1
+    add ax, bx
+    inc ax
+    ; add bytes to the base address
+    add ax, 0x8000
+    ; calculate 12 bits FAT value
+    ; lower 8 bits
+    mov dx, 0x0000 ; base address
+    mov ds, dx
+    mov si, ax ; put address to si register
+    mov ax, [si] ; read two bytes
+
+    shr ax, 4
+
+    jmp Label_NextFATEntry
+```
+
+![lower memory layout](../Documentation/res/FAT_expression_of_files.png)
 
 # References
 
