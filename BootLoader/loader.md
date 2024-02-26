@@ -39,9 +39,59 @@ BaseAddress << 16 + OffsetAddress
 0x07C0:0x0000
 9x0000:0x7C00
 ....
-```
+
 
 The upper limit for 20 address lines are `0x1000000`, We will learn how to address up to `4GB` memory in the future.
+
+### Code Explanation
+
+1. Up on jump to the loader to execute, there is a piece of code that set up the segment registers
+
+```asm
+Label_Loader_Start:
+    mov ax, cs            ; get the current value of code segment
+    mov es, ax            ; assign to es register
+    mov ax, 0x00          ; assign 0 to ax
+    mov ss, ax            ; assign 0 to stack segment
+    mov ds, ax            ; assign 0 to data segment
+    mov sp, 0x7c00        ; set stack pointer
+    
+; segment registers can be displayed when you type sreg in bochs
+<bochs:3> sreg
+es:0x0a00, dh=0x00009300, dl=0xa000ffff, valid=1
+	Data segment, base=0x0000a000, limit=0x0000ffff, Read/Write, Accessed
+cs:0x0a00, dh=0x00009300, dl=0xa000ffff, valid=1
+	Data segment, base=0x0000a000, limit=0x0000ffff, Read/Write, Accessed
+ss:0x0000, dh=0x00009300, dl=0x0000ffff, valid=7
+	Data segment, base=0x00000000, limit=0x0000ffff, Read/Write, Accessed
+ds:0x0000, dh=0x00009300, dl=0x0000ffff, valid=3
+	Data segment, base=0x00000000, limit=0x0000ffff, Read/Write, Accessed
+fs:0x0000, dh=0x00009300, dl=0x0000ffff, valid=1
+	Data segment, base=0x00000000, limit=0x0000ffff, Read/Write, Accessed
+gs:0x0000, dh=0x00009300, dl=0x0000ffff, valid=1
+	Data segment, base=0x00000000, limit=0x0000ffff, Read/Write, Accessed
+ldtr:0x0000, dh=0x00008200, dl=0x0000ffff, valid=1
+tr:0x0000, dh=0x00008b00, dl=0x0000ffff, valid=1
+gdtr:base=0x00000000000f9af7, limit=0x30
+idtr:base=0x0000000000000000, limit=0x3ff
+<bochs:4> 
+
+; we should know that in real mode, the address is located with base << 16 + offset
+; and the base address are stored in these segment registers
+; in protected mode and beyond they will point to a more secure data structure called
+; segment descriptor
+```
+
+2. We should notice that, the function `Func_CmpKernelName` use `si` to store the address, which means this function will locate variable with following format, so if you get the wrong value, remember to check this register!
+
+```asm
+; ds stands for data segment
+ds << 16 + si
+```
+
+
+
+As for the rest of the code it's basically the same with the boot sector to load loader to the RAM, but someone may say that why do I load `FAT1` sectors twice (boot once, and loader once). The reason is that I considered that there maybe future modification of the memory arrangement for the loader program, so I keep this piece of code so that whenever I want, I can change the macro directly!
 
 # Reference
 
