@@ -3,7 +3,7 @@ org 0x7c00
 
 ;===== this BaseOfStack provides intial value for the SP register
 BaseOfStack             equ 0x7c00
-BaseOfLoader            equ 0x1000
+BaseOfLoader            equ 0x0A00
 OffsetOfLoader          equ 0x00
 BaseOfTmpRootDir        equ 0x07e0
 OffsetOfTmpRootDir      equ 0x00
