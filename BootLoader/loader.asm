@@ -1,14 +1,14 @@
 ;===== org means Origin, if not specified, the program will take 0x0000 as start address
-org 0x10000
+org 0xA000
 
 ;=============================Main loader start!============================================
 ;===== Program start point
 Label_Loader_Start:
     mov ax, cs
-    mov ds, ax
     mov es, ax
     mov ax, 0x00
     mov ss, ax
+    mov ds, ax
     mov sp, 0x7c00
 
 ;==== clear screen
@@ -76,5 +76,5 @@ Func_PrintChar:
     int 0x10
     ret
 
-StartLoaderMessage db "loader program start!"
+StartLoaderMessage db "loader program start!", 0
 FocusLineNum db 0
