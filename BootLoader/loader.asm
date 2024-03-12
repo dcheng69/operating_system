@@ -22,6 +22,8 @@ DirNuminOneSctor            equ 16
 RootDirEntryBytes           equ 32
 RootDirNameAttrBytes        equ 11
 
+VGA_TEXT_MODE equ 0x3
+
 ;=============================Main loader start!============================================
 [SECTION .s16]
 [BITS 16]
@@ -95,7 +97,14 @@ CurrSectorFoundKernelBin:
     ; registers are prepared by Func_TraverseDirEntries
     call Func_LoadKernel
     ; jump to kernel and execute (same segment for test)
-    jmp BaseOfKernelFile:OffsetOfKernelFile
+    ; jmp BaseOfKernelFile:OffsetOfKernelFile
+
+    ; set VGA to text mode, 25*80
+    mov ax, VGA_TEXT_MODE
+    int 0x10
+
+    ; Switch to Protected Mode
+    jmp Func_SwitchTo32
 
     jmp $
 ;=============================Main loader end!============================================
@@ -404,3 +413,129 @@ FocusLineNum db 0
 KernelNameStr db 'KERNEL  BIN' ; fixed length of 11 bytes
 NoKernelMessage db 'No KERNEL.BIN!', 0 ; msg for found loader bin
 KernelBase dw BaseOfKernelFile
+
+; ------------------------------------------------
+; GDT defination Flat Model Start
+; ------------------------------------------------
+GDT_Start:
+GDT_Null: ; 8 bytes null GDT entry
+    dd 0x0 ; the mandatory null descriptor for debug
+    dd 0x0
+
+GDT_Code: ; the code segment descriptor
+    ; base address = 0x0, limit = 0xffff (which will be controled by Granularity)
+    ; 1st flags: (P)1 (DPL)00 (TYPE)1 -> 1001b
+    ; type flags: (code)1 (conforming)0 (readable)1 (accessed)0 -> 1010b
+    ; 2nd flags: (graularity)1 (32-bit default)1 (64-bit seg) 0 (AVL) 0 -> 1100b
+    dw 0xffff       ; Limit (bits 0-15)
+    dw 0x0          ; Base (bits 0-15)
+    db 0x0          ; Base (bits 16-23)
+    db 10011010b    ; 1st flags, type flags
+    db 11001111b    ; 2nd flags, Limit (bits 16-19)
+    db 0x0          ; Base (bits 24-31)
+
+GDT_Data: ; the data segment descriptor
+    ; same as the code segment except for the type flags
+    ; type flags: (code) 0 (expands down)0 (wrtable)1 (accessed)0 -> 0010b
+    dw 0xffff       ; Limit (bits 0-15)
+    dw 0x0          ; Base (bits 0-15)
+    db 0x0          ; Base (bits 16-23)
+    db 10010010b    ; 1st flags, type flags
+    db 11001111b    ; 2nd flags, Limit (bits 16-19)
+    db 0x0          ; Base (bits 24-31)
+
+GDT_End:
+
+; GDT descriptor
+GDT_Descriptor:
+    dw GDT_End - GDT_Start - 1  ; size of GDT
+    dd GDT_Start                ; start address of GDT
+
+; jump address for far jump
+CODE_SEG equ GDT_Code - GDT_Start
+DATA_SEG equ GDT_Data - GDT_Start
+; ------------------------------------------------
+; GDT defination Flat Model End
+; ------------------------------------------------
+
+Func_SwitchTo32:
+    ; open address A20
+    in al, 0x92
+    or al, 0b00000010
+    out 0x92, al
+
+    cli ; first forbidden the interrupt
+    lgdt [GDT_Descriptor]
+
+    ; set PE bit of CR0
+    mov eax, cr0    ; When in 16-bit real mode, we can still use eax to operate 32-bit register
+    or al, 0x1
+    mov cr0, eax ; set PE (Protection Enable) bit in CR0 (Control Register 0)
+
+    ; perform a far jump to force the CPU clear pipeline
+    jmp dword CODE_SEG:Func_PMStart
+
+;=============================Swithc to 32-bit mode start!==========================================
+[SECTION .s32]
+[BITS 32]
+; constants used by the function
+VIDEO_MEMORY equ 0xB8000
+WHITE_ON_BLACK equ 0x0f
+
+; ------------------------------------------------
+; Function Name: Func_PMStart
+; Description: Prepare the stacks and print messages
+; Output:
+;   - No return value
+; ------------------------------------------------
+Func_PMStart:
+Label_InitStack:
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov ss, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    
+    mov ebp, 0x7c00 ; update the stack position
+    mov esp, ebp
+
+Label_PrintWelMsg:
+    mov ebx, PMMessage
+    call Func_PrintString32
+    jmp $ ; pending after print this message
+
+; ------------------------------------------------
+; Function Name: Func_PrintString32
+; Description: Print a null terminated string on screen
+; Input Parameters:
+;   - Param 1:EBX - address of the string
+; Output:
+;   - No return value
+; ------------------------------------------------
+Func_PrintString32:
+    mov edx, [PrintString32StartingAddress]
+
+Label_PrintCharLoop:
+    mov al, [ebx] ; char to print
+    mov ah, WHITE_ON_BLACK ; attributes for this char
+
+    cmp al, 0
+    je Label_PrintString32Done ; if hit null, terminate
+
+    mov [edx], ax
+    add ebx, 1 ; Increment to read the next char in the string
+    add edx, 2 ; move to the next memory cell of VGA memory
+
+    jmp Label_PrintCharLoop
+
+Label_PrintString32Done:
+    mov edx, PrintString32StartingAddress
+    add edx, 0xa0 ; move the next line start position
+    mov [PrintString32StartingAddress], dword edx ; save the value back to memory
+    ret
+
+
+PrintString32StartingAddress dd VIDEO_MEMORY
+PMMessage db "Entering 32-bit protected mode!", 0
+;=============================Swithc to 32-bit mode end!============================================
