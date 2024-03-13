@@ -93,6 +93,198 @@ ds << 16 + si
 
 As for the rest of the code it's basically the same with the boot sector to load loader to the RAM, but someone may say that why do I load `FAT1` sectors twice (boot once, and loader once). The reason is that I considered that there maybe future modification of the memory arrangement for the loader program, so I keep this piece of code so that whenever I want, I can change the macro directly!
 
+## Kernel In 32-bit Protected Mode
+
+Though it's fun to coding kernel with 16-bit real mode, but due to the limited addressing space, eventually we will switch to the 32-bit protected mode.
+
+### Main Differences in 32-bit Protected Mode
+
+* Registers are extended to 32 bits, but the lower 16 bits and 8 bits are still independently accessible. (`EAX, AX, AL`)
+* Two additional general purpose segment registers provided, `fs` and `gs`
+* 32-bit memory offsets are available, so an offset can reference a whopping `4GB` of memory (`0xffffffff`)
+* The CPU supports a more complex but safe memory segment model.
+* Interrupt handling is more sophisticated.
+* BIOS routines are no longer supported. (Which means 32-bit operating system must provide its own drivers for all hardware of the machine)
+
+### Construct `GDT`
+
+The 32-bit protected mode based on the structure Global Descriptor Table (`GDT`), so we have to understand what is the setup of the `GDT`
+
+#### Global Descriptor Table (`GDT`)
+
+Recall the segment model used in 16-bit mode, we simply multiply the base address by 16 (shift left by 4 bits), then we add the offset to get the physical address.
+
+Now we decide to translate the logical address based on the information provided by a data structure called **segment descriptor (`SD`)**. We put the index of a particular segment descriptor to the segment register.
+
+------
+
+**Segment Descriptor:**
+
+8-byte structure that defines the following properties
+
+* Base address (32 bits), defines where the segment begins in physical memory
+* Segment Limit (20 bits), defines the size of the segment
+* Various flags (status indicator)
+
+![image-20240128141754681](/home/clay/Share/OS/operating_system/Documentation/res/segment_descriptor_structure.png)
+
+------
+
+#### `GDT` Descriptor
+
+The `CPU` needs to know  how long our `GDT` is and the actual switch operation only accept one address, so we will need another data structure to describe the `GDT`, called `GDT` descriptor, which is a 6-byte structure containing:
+
+* `GDT` size (16 bits)
+* `GDT` address (32 bits)
+
+#### Defining the `GDT` in Assembly
+
+```asm
+GDT_Start:
+GDT_Null: ; 8 bytes null GDT entry
+    dd 0x0 ; the mandatory null descriptor for debug
+    dd 0x0
+
+GDT_Code: ; the code segment descriptor
+    ; base address = 0x0, limit = 0xffff (which will be controled by Granularity)
+    ; 1st flags: (P)1 (DPL)00 (TYPE)1 -> 1001b
+    ; type flags: (code)1 (conforming)0 (readable)1 (accessed)0 -> 1010b
+    ; 2nd flags: (graularity)1 (32-bit default)1 (64-bit seg) 0 (AVL) 0 -> 1100b
+    dw 0xffff       ; Limit (bits 0-15)
+    dw 0x0          ; Base (bits 0-15)
+    db 0x0          ; Base (bits 16-23)
+    db 10011010b    ; 1st flags, type flags
+    db 11001111b    ; 2nd flags, Limit (bits 16-19)
+    db 0x0          ; Base (bits 24-31)
+
+GDT_Data: ; the data segment descriptor
+    ; same as the code segment except for the type flags
+    ; type flags: (code) 0 (expands down)0 (wrtable)1 (accessed)0 -> 0010b
+    dw 0xffff       ; Limit (bits 0-15)
+    dw 0x0          ; Base (bits 0-15)
+    db 0x0          ; Base (bits 16-23)
+    db 10010010b    ; 1st flags, type flags
+    db 11001111b    ; 2nd flags, Limit (bits 16-19)
+    db 0x0          ; Base (bits 24-31)
+
+GDT_End:
+
+; GDT descriptor
+GDT_Descriptor:
+    dw GDT_End - GDT_Start - 1  ; size of GDT
+    dd GDT_Start                ; start address of GDT
+
+; jump address for far jump
+CODE_SEG equ GDT_Code - GDT_Start
+DATA_SEG equ GDT_Data - GDT_Start
+```
+
+### Making the switch
+
+There are a few steps in the process of making the switch to `32-bit` protected mode [3]
+
+1. we need to enable the `A20` line [4]
+2. disable the interrupts
+3. load `GDT`
+4. set the `PE (Protected Enable)` control bit of `CR0` (control register 0)
+5. far jump to force `CPU` to clear it's pipeline
+
+#### Enable the `A20` line
+
+The `A20` Address Line is the physical representation of the 21st bit (number 20, counting from 0) of any memory access. When the `IBM-AT (intel 286)` was introduced, it was able to access 16 MB of memory, compared to 1 MB of the `intel 8086`.  In order to remain compatible with the 8086, which would also compatible to the older program developed in `16-bit` Real mode, we would need the ability to switch between `A0 ~A19` and `A20 ~ higher`. For the details of addressing model as well as the history of `A20` you can reference [4] [5].
+
+There are many ways of enabling the `A20` line, we choose to write to I/O port 92, bit 1 to enable it.
+
+```asm
+; open address A20
+in al, 0x92
+or al, 0b00000010
+out 0x92, al
+```
+
+#### Disable the Interrupts
+
+The reason why we need to disable interrupts before we enter the Protected Mode lies on the hardware design [6], you can find more information from  https://archive.org/details/bitsavers_intel80386ammersReferenceManual1986_27457025
+
+For my explanation, in `16-bit` real mode, we rely on interrupts to do various operations, but in `32-bit` protected mode we use interrupts differently, the system would reply on exception and a bunch of subroutines defined to handle these exceptions, so before entering `32-bit` protected mode, we need to disable interrupts first, this will ensure atomicity of certain operations to prevent interrupt-related issues during critical sections of code.
+
+```asm 
+cli
+```
+
+#### Load `GDT`
+
+In the previous section we have already defined `GDT` in assembly, right now we only need to load the `GDT Descriptor` to the special register using `lgdt`. notice that when using `lgdt` we are still in `16-bit` Real mode, so put your `GDT Descriptor` in the `.16` section, or you will face problem referencing it.
+
+```asm
+lgdt [GDT_Descriptor]
+```
+
+Set `PE` in `CR0`
+
+After doing all the preparations, the actual switch is very easy to trigger, all you need to do is to set the `PE (Protection Enable)` bit in `CR0` Control register 0. [7]
+
+```asm
+; set PE bit of CR0
+mov eax, cr0    ; When in 16-bit real mode, we can still use eax to operate 32-bit register
+or al, 0x1
+mov cr0, eax ; set PE (Protection Enable) bit in CR0 (Control Register 0)
+```
+
+#### Clear the Pipeline
+
+Due to the design of `cpu`, a technology called **pipeline** was implemented, which will help to improve the efficiency, but in order to switch to `32-bit` mode, we would need the `cpu` to clear all its instruction currently fetched and pipelined. In order to do this, we can simply perform a far jump.
+
+But we need to realise that we just load the `GDT` ,which means that when we referencing the address of the code, we would need to use the `segment selector`  as a offset.
+
+```asm
+; perform a far jump to force the CPU clear pipeline
+jmp dword CODE_SEG:Func_PMStart
+```
+
+And in the `Func_PMStart` we need to set the initial value of the `segment register` as well we the stack pointer, the layout of the memory is mentioned in the previous diagram:
+
+```asm
+; ------------------------------------------------
+; Function Name: Func_PMStart
+; Description: Prepare the stacks and print messages
+; Output:
+;   - No return value
+; ------------------------------------------------
+Func_PMStart:
+Label_InitStack:
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov ss, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    
+    mov ebp, 0x7c00 ; update the stack position
+    mov esp, ebp
+
+Label_PrintWelMsg:
+    mov ebx, PMMessage
+    call Func_PrintString32
+    jmp $ ; pending after print this message
+```
+
+#### Result
+
+The result is shown as below, but what we need to know is that, we only construct the `GDT`, but the system has `tr, ldtr, idtr` which need to be implemented in the future!
+
+![image-20240313153224439](..//Documentation/res/Entering_32-bit_PM.png)
+
 # Reference
 
-1. https://wiki.osdev.org/Memory_management
+1. ##### https://wiki.osdev.org/Memory_management
+
+2. https://wiki.osdev.org/GDT_Tutorial
+3. https://wiki.osdev.org/Protected_Mode
+4. https://wiki.osdev.org/A20_Line
+5. https://en.wikipedia.org/wiki/A20_line
+6. https://stackoverflow.com/questions/16536035/why-do-interrupts-need-to-be-disabled-before-switching-to-protected-mode-from-re
+7. https://en.wikipedia.org/wiki/Control_register
+8. 
+
+2. https://www.stanislavs.org/helppc/int_10-0.html
